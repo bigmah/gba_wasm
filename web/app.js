@@ -61,6 +61,10 @@ const el = {
   gamepadStatus: $("gamepad-status"),
   bindingTable: $("binding-table"),
   controlsPanel: $("controls-panel"),
+  stage: $("stage"),
+  gba: $("gba"),
+  dpad: $("dpad"),
+  dpadCross: $("dpad-cross"),
 };
 
 function setStatus(text, kind = "") {
@@ -208,6 +212,10 @@ function releaseAllInputs() {
   }
   if (fastForwarding) setFastForward(false);
   if (rewinding) setRewind(false);
+
+  // Fingers resting on the skin are not holding anything any more either.
+  touches.clear();
+  paintTouchPad();
 }
 
 function setFastForward(on) {
@@ -397,6 +405,126 @@ function pollGamepads() {
   requestAnimationFrame(pollGamepads);
 }
 
+// ---------------------------------------------------------------- touch pad
+
+/**
+ * The on-screen console.
+ *
+ * index.html carries a GBA skin around the canvas that style.css only lays out
+ * on touch-first devices. Each finger is just another input source feeding
+ * `setButton`, so touch mixes with keyboard and gamepad like anything else.
+ */
+const touchQuery = matchMedia("(pointer: coarse)");
+
+/**
+ * How much of a finger's offset from the D-pad's centre has to be on one axis
+ * for that direction to count. 0.45 leaves each corner ~36° of diagonal.
+ */
+const DPAD_AXIS = 0.45;
+
+/** Dead centre of the D-pad, as a fraction of its half-width. */
+const DPAD_DEAD = 0.18;
+
+/** pointerId → { dpad, held } for every finger currently on a control. */
+const touches = new Map();
+const touchButtons = document.querySelectorAll(".gba [data-btn]");
+
+/**
+ * Which way a finger at (x, y) pushes the D-pad. A finger that lands on it
+ * keeps steering it wherever it wanders, so a thumb can roll between
+ * directions — and off the edge — without losing the press.
+ */
+function dpadDirections(x, y) {
+  const box = el.dpadCross.getBoundingClientRect();
+  const dx = (x - (box.left + box.width / 2)) / (box.width / 2);
+  const dy = (y - (box.top + box.height / 2)) / (box.height / 2);
+  const distance = Math.hypot(dx, dy);
+  if (distance < DPAD_DEAD) return [];
+
+  const out = [];
+  if (dx < -DPAD_AXIS * distance) out.push("left");
+  if (dx >  DPAD_AXIS * distance) out.push("right");
+  if (dy < -DPAD_AXIS * distance) out.push("up");
+  if (dy >  DPAD_AXIS * distance) out.push("down");
+  return out;
+}
+
+/**
+ * The buttons under a finger. `data-btn` may name more than one, which is what
+ * makes the gap between A and B press both.
+ */
+function touchTargets(touch, x, y) {
+  if (touch.dpad) return dpadDirections(x, y);
+  const hit = document.elementFromPoint(x, y)?.closest("[data-btn]");
+  return hit ? hit.dataset.btn.split(" ") : [];
+}
+
+function paintTouchPad() {
+  const held = new Set();
+  for (const touch of touches.values()) for (const id of touch.held) held.add(id);
+
+  for (const node of touchButtons) node.classList.toggle("pressed", held.has(node.dataset.btn));
+  el.dpad.dataset.dir = ["up", "down", "left", "right"].filter((d) => held.has(d)).join(" ");
+}
+
+/** Re-aims one finger, pressing and releasing whatever it moved onto and off. */
+function moveTouch(pointerId, x, y) {
+  const touch = touches.get(pointerId);
+  if (!touch) return;
+
+  const next = new Set(touchTargets(touch, x, y));
+  const source = "touch" + pointerId;
+  let pressedSomething = false;
+
+  for (const id of touch.held) if (!next.has(id)) setButton(id, source, false);
+  for (const id of next) {
+    if (touch.held.has(id)) continue;
+    setButton(id, source, true);
+    pressedSomething = true;
+  }
+  touch.held = next;
+
+  // Browsers refuse (and complain) before the page's first real tap.
+  if (pressedSomething && navigator.userActivation?.hasBeenActive !== false) {
+    navigator.vibrate?.(8);
+  }
+  paintTouchPad();
+}
+
+function endTouch(pointerId) {
+  const touch = touches.get(pointerId);
+  if (!touch) return;
+  for (const id of touch.held) setButton(id, "touch" + pointerId, false);
+  touches.delete(pointerId);
+  paintTouchPad();
+}
+
+function wireTouchPad() {
+  el.gba.addEventListener("pointerdown", (e) => {
+    const zone = e.target.closest(".tp");
+    if (!zone) return;
+    e.preventDefault();
+    // Capture explicitly: a finger that slides off the skin — or a mouse, in a
+    // device emulator — still has to report where it let go.
+    zone.setPointerCapture(e.pointerId);
+    touches.set(e.pointerId, { dpad: zone === el.dpad, held: new Set() });
+    moveTouch(e.pointerId, e.clientX, e.clientY);
+  });
+
+  el.gba.addEventListener("pointermove", (e) => moveTouch(e.pointerId, e.clientX, e.clientY));
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
+    el.gba.addEventListener(type, (e) => endTouch(e.pointerId));
+  }
+
+  // Touch browsers would rather select, magnify or zoom than let you play.
+  el.gba.addEventListener("touchstart", (e) => {
+    if (e.target.closest(".tp")) e.preventDefault();
+  }, { passive: false });
+  el.gba.addEventListener("contextmenu", (e) => {
+    if (e.target.closest(".tp")) e.preventDefault();
+  });
+}
+
 // ---------------------------------------------------------------- rebinding
 
 function stopListening() {
@@ -497,6 +625,15 @@ document.addEventListener("pointerdown", (e) => {
 // ---------------------------------------------------------------- display
 
 function applyScale() {
+  // On the skin the screen is sized by the skin, so the Scale control (which is
+  // hidden there) must not leave an inline size behind.
+  if (touchQuery.matches) {
+    el.canvas.style.width = "";
+    el.canvas.style.height = "";
+    el.canvas.style.aspectRatio = "";
+    return;
+  }
+
   const scale = parseInt(settings.scale, 10) || 0;
   if (scale === 0) {
     el.canvas.style.width = "min(100%, 720px)";
@@ -741,7 +878,10 @@ function showIdleOverlay(roms = libraryRoms()) {
     showOverlay("Ready — " + (el.romSelect.value || roms[0]), {
       spinner: false,
       hint: true,
-      action: { label: "Click to start", onClick: startSelectedRom },
+      action: {
+        label: touchQuery.matches ? "Tap to start" : "Click to start",
+        onClick: startSelectedRom,
+      },
     });
   }
 }
@@ -819,7 +959,9 @@ function unlockAudio() {
   ctx.resume().then(() => { audioReady = true; }).catch(() => {});
 }
 
+// A touch only counts as a gesture once it ends, so try again on the way up.
 document.addEventListener("pointerdown", unlockAudio, true);
+document.addEventListener("pointerup", unlockAudio, true);
 document.addEventListener("keydown", unlockAudio, true);
 
 // ------------------------------------------------------------ drag and drop
@@ -884,9 +1026,12 @@ function wireToolbar() {
   $("btn-load-state").addEventListener("click", doLoadState);
   $("btn-shot").addEventListener("click", downloadScreenshot);
 
+  // iPhone Safari has no element fullscreen at all, so don't offer a dead button.
+  $("btn-fullscreen").hidden = !document.fullscreenEnabled;
   $("btn-fullscreen").addEventListener("click", () => {
     if (document.fullscreenElement) document.exitFullscreen();
-    else el.screenWrap.requestFullscreen?.().catch(() => {});
+    // On the skin, fullscreen means the whole console rather than its screen.
+    else (touchQuery.matches ? el.stage : el.screenWrap).requestFullscreen?.().catch(() => {});
   });
 
   $("btn-controls").addEventListener("click", () => {
@@ -966,8 +1111,11 @@ async function boot() {
   }
 
   wireToolbar();
+  wireTouchPad();
   renderBindings();
   applyScale();
+  // Plugging in a mouse, or docking a tablet, changes which page this is.
+  touchQuery.addEventListener("change", applyScale);
   requestAnimationFrame(pollGamepads);
 
   showOverlay("Loading mGBA core…");

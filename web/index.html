@@ -20,17 +20,36 @@
     </div>
   </header>
 
-  <main class="stage">
-    <div class="screen-wrap" id="screen-wrap">
-      <canvas id="screen" width="240" height="160" tabindex="0"></canvas>
-      <div class="overlay" id="overlay">
-        <div class="overlay-box">
-          <div class="spinner" id="spinner"></div>
-          <p id="overlay-text">Loading mGBA core…</p>
-          <button id="overlay-action" class="btn primary" hidden>Click to start</button>
-          <p id="overlay-hint" class="overlay-hint" hidden>…or drop a file anywhere on this page</p>
+  <main class="stage" id="stage">
+    <div class="gba" id="gba">
+      <div class="screen-wrap" id="screen-wrap">
+        <canvas id="screen" width="240" height="160" tabindex="0"></canvas>
+        <div class="overlay" id="overlay">
+          <div class="overlay-box">
+            <div class="spinner" id="spinner"></div>
+            <p id="overlay-text">Loading mGBA core…</p>
+            <button id="overlay-action" class="btn primary" hidden>Click to start</button>
+            <p id="overlay-hint" class="overlay-hint" hidden>…or drop a file anywhere on this page</p>
+          </div>
         </div>
       </div>
+
+      <!-- On-screen controls. Only touch devices show them; see style.css. -->
+      <div class="tp tp-shoulder tp-l" data-btn="l" aria-hidden="true">L</div>
+      <div class="tp tp-shoulder tp-r" data-btn="r" aria-hidden="true">R</div>
+      <div class="tp tp-dpad" id="dpad" aria-hidden="true">
+        <div class="tp-cross" id="dpad-cross"><i></i></div>
+      </div>
+      <div class="tp tp-face" aria-hidden="true">
+        <div class="tp-btn tp-b" data-btn="b">B</div>
+        <div class="tp-btn tp-a" data-btn="a">A</div>
+        <div class="tp-chord" data-btn="a b"></div>
+      </div>
+      <div class="tp tp-sys" aria-hidden="true">
+        <div class="tp-pill" data-btn="select"><i></i>Select</div>
+        <div class="tp-pill" data-btn="start"><i></i>Start</div>
+      </div>
+      <div class="tp-speaker" aria-hidden="true"></div>
     </div>
   </main>
 
@@ -56,7 +75,7 @@
     <label class="field">Vol
       <input id="volume" type="range" min="0" max="100" value="70">
     </label>
-    <label class="field">Scale
+    <label class="field" id="scale-field">Scale
       <select id="scale">
         <option value="0">Fit</option>
         <option value="1">1×</option>

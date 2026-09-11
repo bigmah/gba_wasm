@@ -303,6 +303,10 @@ kbd {
 @media (max-width: 620px) {
   .binding-row { grid-template-columns: 1fr 1fr; }
   .binding-row > :nth-child(3) { display: none; }
+
+  /* The ROM controls take a line of their own rather than pushing the page wide. */
+  .topbar-right { flex-basis: 100%; min-width: 0; }
+  #rom-select { flex: 1; min-width: 0; }
 }
 
 /* ---------- rom library ---------- */
@@ -342,4 +346,331 @@ select:disabled {
   font-size: 17px;
   font-weight: 600;
   background: rgba(110, 168, 254, 0.08);
+}
+
+/* ---------- on-screen GBA ---------- */
+
+/*
+ * Touch-first devices get the screen set into a little console with a D-pad and
+ * buttons you can actually play with. Anywhere else the skin's wrapper drops
+ * out of the layout and its controls stay hidden, so the desktop page is the
+ * one it always was. app.js keys off the same media query.
+ *
+ * Every size on the skin is a multiple of --u, a hundredth of the skin's
+ * portrait width, so the whole console scales as one piece into whatever room
+ * the viewport has. --room-x / --room-y are what the page keeps for itself —
+ * gutters, the top bar, somewhere to scroll from — and fullscreen hands most
+ * of that back.
+ */
+
+.gba { display: contents; }
+.tp, .tp-speaker { display: none; }
+
+/* Viewport height that ignores the browser's retracting bars, where it exists. */
+:root { --vh: 1vh; }
+@supports (height: 1svh) {
+  :root { --vh: 1svh; }
+}
+
+@media (pointer: coarse) {
+  body { touch-action: manipulation; }   /* no double-tap zoom on the toolbar */
+
+  .gba {
+    --u: min(
+      (100vw - var(--room-x, 32px)) / 100,
+      (100 * var(--vh) - var(--room-y, 120px)) / 141,
+      5.6px
+    );
+    --skin-label: rgba(238, 236, 255, 0.62);
+    --skin-shadow: rgba(26, 18, 60, 0.6);
+
+    position: relative;
+    display: grid;
+    width: calc(100 * var(--u));
+    padding: calc(5 * var(--u)) calc(5 * var(--u)) calc(6 * var(--u));
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto calc(8 * var(--u)) calc(40 * var(--u)) calc(10 * var(--u));
+    grid-template-areas:
+      "screen screen"
+      "l      r"
+      "dpad   face"
+      "sys    sys";
+    row-gap: calc(3 * var(--u));
+    column-gap: calc(4 * var(--u));
+    border-radius: calc(6 * var(--u)) calc(6 * var(--u)) calc(16 * var(--u)) calc(16 * var(--u));
+    background: linear-gradient(168deg, #6c5dc4, #55489f 55%, #453a86);
+    box-shadow:
+      inset 0 calc(0.7 * var(--u)) 0 rgba(255, 255, 255, 0.2),
+      inset 0 calc(-1.2 * var(--u)) 0 rgba(0, 0, 0, 0.25),
+      0 calc(2 * var(--u)) calc(6 * var(--u)) rgba(0, 0, 0, 0.5);
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Fullscreen puts the whole console on the glass, not just its screen. */
+  .stage:fullscreen {
+    --room-x: 16px;
+    --room-y: 16px;
+    align-items: center;
+    background: var(--bg);
+  }
+
+  /* ---- screen lens ---- */
+
+  .screen-wrap {
+    grid-area: screen;
+    width: calc(90 * var(--u));
+    padding: calc(3.5 * var(--u));
+    border: 0;
+    border-radius: calc(3 * var(--u));
+    background: #1d1a29;
+    box-shadow:
+      inset 0 0 0 calc(0.35 * var(--u)) rgba(0, 0, 0, 0.5),
+      0 calc(0.5 * var(--u)) 0 rgba(255, 255, 255, 0.14);
+  }
+
+  /* Power LED, left of the screen where the real one sits. */
+  .screen-wrap::before {
+    content: "";
+    position: absolute;
+    left: calc(1.15 * var(--u));
+    top: calc(4 * var(--u));
+    width: calc(1.2 * var(--u));
+    height: calc(1.2 * var(--u));
+    border-radius: 50%;
+    background: #7bf07b;
+    box-shadow: 0 0 calc(1.2 * var(--u)) #57e257;
+  }
+
+  #screen { width: 100%; height: auto; aspect-ratio: 3 / 2; }
+
+  .overlay { padding: 10px; border-radius: inherit; }
+  .overlay-box p { font-size: 12px; }
+  .overlay-hint { display: none; }   /* nothing to drag a file from */
+
+  #scale-field { display: none; }    /* the skin sizes the screen */
+
+  /* ---- controls ---- */
+
+  .tp {
+    position: relative;
+    display: grid;
+    place-items: center;
+    touch-action: none;
+  }
+
+  .tp-shoulder {
+    grid-area: l;
+    justify-self: start;
+    width: calc(30 * var(--u));
+    height: 100%;
+    border-radius: calc(4 * var(--u)) calc(4 * var(--u)) calc(1.5 * var(--u)) calc(1.5 * var(--u));
+    background: linear-gradient(#a79dea, #7a6ec8);
+    box-shadow:
+      0 calc(0.8 * var(--u)) 0 var(--skin-shadow),
+      inset 0 calc(0.5 * var(--u)) 0 rgba(255, 255, 255, 0.35);
+    color: #2f2672;
+    font: 700 calc(4 * var(--u))/1 system-ui, sans-serif;
+  }
+  .tp-r { grid-area: r; justify-self: end; }
+
+  /* A shoulder is drawn thin; give it a thumb-sized hit area anyway. */
+  .tp-shoulder::before {
+    content: "";
+    position: absolute;
+    inset: calc(-2.5 * var(--u)) calc(-2 * var(--u));
+  }
+
+  .tp-dpad { grid-area: dpad; }
+
+  .tp-cross {
+    position: relative;
+    width: calc(34 * var(--u));
+    height: calc(34 * var(--u));
+  }
+
+  /* The cross tips towards whatever is being held, like a real one rocking. */
+  .tp-cross i {
+    position: absolute;
+    inset: 0;
+    transform: perspective(calc(70 * var(--u))) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    transition: transform 70ms ease-out;
+  }
+  .tp-cross i::before,
+  .tp-cross i::after {
+    content: "";
+    position: absolute;
+    border-radius: calc(1.6 * var(--u));
+    background: linear-gradient(#3b3949, #26242f);
+    box-shadow:
+      0 calc(0.9 * var(--u)) 0 var(--skin-shadow),
+      inset 0 calc(0.4 * var(--u)) 0 rgba(255, 255, 255, 0.08);
+  }
+  .tp-cross i::before { inset: 33.5% 0; }
+  .tp-cross i::after  { inset: 0 33.5%; }
+
+  .tp-dpad[data-dir~="up"]    .tp-cross i { --rx: 13deg; }
+  .tp-dpad[data-dir~="down"]  .tp-cross i { --rx: -13deg; }
+  .tp-dpad[data-dir~="left"]  .tp-cross i { --ry: -13deg; }
+  .tp-dpad[data-dir~="right"] .tp-cross i { --ry: 13deg; }
+
+  .tp-face { grid-area: face; }
+
+  .tp-btn {
+    position: absolute;
+    display: grid;
+    place-items: center;
+    width: calc(16 * var(--u));
+    height: calc(16 * var(--u));
+    border-radius: 50%;
+    background: radial-gradient(circle at 34% 28%, #5d5573, #3a3350 62%, #2e2842);
+    box-shadow:
+      0 calc(1 * var(--u)) 0 var(--skin-shadow),
+      0 calc(1.6 * var(--u)) calc(2 * var(--u)) rgba(0, 0, 0, 0.35),
+      inset 0 calc(0.4 * var(--u)) 0 rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.62);
+    font: 700 calc(5.5 * var(--u))/1 system-ui, sans-serif;
+  }
+  .tp-a { left: calc(50% + 1 * var(--u));  top: calc(50% - 13 * var(--u)); }
+  .tp-b { left: calc(50% - 17 * var(--u)); top: calc(50% - 3 * var(--u)); }
+
+  /* Thumbs are wider than the buttons they aim at. */
+  .tp-btn::before {
+    content: "";
+    position: absolute;
+    inset: calc(-2.5 * var(--u));
+    border-radius: 50%;
+  }
+
+  /* The gap between A and B, which presses both — see data-btn in index.html. */
+  .tp-chord {
+    position: absolute;
+    left: calc(50% - 3.5 * var(--u));
+    top: calc(50% - 3.5 * var(--u));
+    width: calc(7 * var(--u));
+    height: calc(7 * var(--u));
+    border-radius: 50%;
+  }
+
+  .tp-sys {
+    grid-area: sys;
+    grid-auto-flow: column;
+    justify-content: center;   /* auto tracks would otherwise stretch apart */
+    gap: calc(7 * var(--u));
+  }
+
+  .tp-pill {
+    display: grid;
+    justify-items: center;
+    gap: calc(1.2 * var(--u));
+    padding: calc(1.5 * var(--u)) calc(3 * var(--u));
+    color: var(--skin-label);
+    font: 700 calc(2.6 * var(--u))/1 system-ui, sans-serif;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .tp-pill i {
+    width: calc(11 * var(--u));
+    height: calc(3.6 * var(--u));
+    border-radius: 999px;
+    background: linear-gradient(#4a4459, #322d41);
+    box-shadow:
+      0 calc(0.7 * var(--u)) 0 var(--skin-shadow),
+      inset 0 calc(0.3 * var(--u)) 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .tp-speaker {
+    display: block;
+    position: absolute;
+    right: calc(7 * var(--u));
+    bottom: calc(4.5 * var(--u));
+    /* Whole numbers of holes, so the pattern never ends on a half one. */
+    width: calc(12 * var(--u));
+    height: calc(7.2 * var(--u));
+    background:
+      radial-gradient(circle, rgba(24, 16, 60, 0.5) 0 calc(0.55 * var(--u)), transparent calc(0.62 * var(--u)))
+      0 0 / calc(2.4 * var(--u)) calc(2.4 * var(--u));
+  }
+
+  /* ---- what a press looks like ---- */
+
+  .tp-btn.pressed,
+  .tp-shoulder.pressed {
+    filter: brightness(0.92);
+    transform: translateY(calc(0.7 * var(--u)));
+    box-shadow: 0 calc(0.2 * var(--u)) 0 var(--skin-shadow);
+  }
+  .tp-pill.pressed i {
+    transform: translateY(calc(0.5 * var(--u)));
+    box-shadow: 0 calc(0.15 * var(--u)) 0 var(--skin-shadow);
+  }
+}
+
+/* Landscape wraps the controls around the screen, the way the real one is
+   laid out, and the console takes the first screenful to itself. */
+@media (pointer: coarse) and (orientation: landscape) {
+  .stage {
+    order: -1;
+    min-height: calc(100 * var(--vh) - 32px);
+    align-items: center;
+  }
+
+  .gba {
+    --u: min(
+      (100vw - var(--room-x, 32px)) / 191,
+      (100 * var(--vh) - var(--room-y, 32px)) / 80,
+      7px
+    );
+
+    width: calc(191 * var(--u));
+    margin-top: calc(3 * var(--u));   /* room for the shoulders on the top edge */
+    padding: calc(4 * var(--u)) calc(3 * var(--u));
+    grid-template-columns: calc(40 * var(--u)) calc(99 * var(--u)) calc(40 * var(--u));
+    grid-template-rows: calc(12 * var(--u)) 1fr calc(14 * var(--u));
+    grid-template-areas:
+      "l    screen r"
+      "dpad screen face"
+      "sys  screen spk";
+    row-gap: 0;
+    column-gap: calc(3 * var(--u));
+    border-radius:
+      calc(20 * var(--u)) calc(20 * var(--u)) calc(30 * var(--u)) calc(30 * var(--u)) /
+      calc(18 * var(--u)) calc(18 * var(--u)) calc(46 * var(--u)) calc(46 * var(--u));
+  }
+
+  .screen-wrap { width: calc(99 * var(--u)); }
+
+  .tp-shoulder {
+    align-self: start;
+    width: calc(36 * var(--u));
+    height: calc(15 * var(--u));
+    margin-top: calc(-7 * var(--u));
+  }
+  .tp-l {
+    margin-left: calc(-1 * var(--u));
+    border-radius:
+      calc(16 * var(--u)) calc(5 * var(--u)) calc(2 * var(--u)) calc(2 * var(--u)) /
+      calc(12 * var(--u)) calc(5 * var(--u)) calc(2 * var(--u)) calc(2 * var(--u));
+  }
+  .tp-r {
+    margin-right: calc(-1 * var(--u));
+    border-radius:
+      calc(5 * var(--u)) calc(16 * var(--u)) calc(2 * var(--u)) calc(2 * var(--u)) /
+      calc(5 * var(--u)) calc(12 * var(--u)) calc(2 * var(--u)) calc(2 * var(--u));
+  }
+
+  .tp-sys {
+    justify-self: end;
+    gap: calc(2 * var(--u));
+  }
+  .tp-pill { padding: calc(1.5 * var(--u)) calc(2 * var(--u)); }
+  .tp-pill i { width: calc(9 * var(--u)); }
+
+  .tp-speaker {
+    grid-area: spk;
+    position: static;
+    place-self: center;
+  }
 }

@@ -311,6 +311,10 @@ kbd {
 @media (max-width: 620px) {
   .binding-row { grid-template-columns: 1fr 1fr; }
   .binding-row > :nth-child(3) { display: none; }
+
+  /* The ROM controls take a line of their own rather than pushing the page wide. */
+  .topbar-right { flex-basis: 100%; min-width: 0; }
+  #rom-select { flex: 1; min-width: 0; }
 }
 
 /* ---------- rom library ---------- */
@@ -351,6 +355,333 @@ select:disabled {
   font-weight: 600;
   background: rgba(110, 168, 254, 0.08);
 }
+
+/* ---------- on-screen GBA ---------- */
+
+/*
+ * Touch-first devices get the screen set into a little console with a D-pad and
+ * buttons you can actually play with. Anywhere else the skin's wrapper drops
+ * out of the layout and its controls stay hidden, so the desktop page is the
+ * one it always was. app.js keys off the same media query.
+ *
+ * Every size on the skin is a multiple of --u, a hundredth of the skin's
+ * portrait width, so the whole console scales as one piece into whatever room
+ * the viewport has. --room-x / --room-y are what the page keeps for itself —
+ * gutters, the top bar, somewhere to scroll from — and fullscreen hands most
+ * of that back.
+ */
+
+.gba { display: contents; }
+.tp, .tp-speaker { display: none; }
+
+/* Viewport height that ignores the browser's retracting bars, where it exists. */
+:root { --vh: 1vh; }
+@supports (height: 1svh) {
+  :root { --vh: 1svh; }
+}
+
+@media (pointer: coarse) {
+  body { touch-action: manipulation; }   /* no double-tap zoom on the toolbar */
+
+  .gba {
+    --u: min(
+      (100vw - var(--room-x, 32px)) / 100,
+      (100 * var(--vh) - var(--room-y, 120px)) / 141,
+      5.6px
+    );
+    --skin-label: rgba(238, 236, 255, 0.62);
+    --skin-shadow: rgba(26, 18, 60, 0.6);
+
+    position: relative;
+    display: grid;
+    width: calc(100 * var(--u));
+    padding: calc(5 * var(--u)) calc(5 * var(--u)) calc(6 * var(--u));
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto calc(8 * var(--u)) calc(40 * var(--u)) calc(10 * var(--u));
+    grid-template-areas:
+      "screen screen"
+      "l      r"
+      "dpad   face"
+      "sys    sys";
+    row-gap: calc(3 * var(--u));
+    column-gap: calc(4 * var(--u));
+    border-radius: calc(6 * var(--u)) calc(6 * var(--u)) calc(16 * var(--u)) calc(16 * var(--u));
+    background: linear-gradient(168deg, #6c5dc4, #55489f 55%, #453a86);
+    box-shadow:
+      inset 0 calc(0.7 * var(--u)) 0 rgba(255, 255, 255, 0.2),
+      inset 0 calc(-1.2 * var(--u)) 0 rgba(0, 0, 0, 0.25),
+      0 calc(2 * var(--u)) calc(6 * var(--u)) rgba(0, 0, 0, 0.5);
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Fullscreen puts the whole console on the glass, not just its screen. */
+  .stage:fullscreen {
+    --room-x: 16px;
+    --room-y: 16px;
+    align-items: center;
+    background: var(--bg);
+  }
+
+  /* ---- screen lens ---- */
+
+  .screen-wrap {
+    grid-area: screen;
+    width: calc(90 * var(--u));
+    padding: calc(3.5 * var(--u));
+    border: 0;
+    border-radius: calc(3 * var(--u));
+    background: #1d1a29;
+    box-shadow:
+      inset 0 0 0 calc(0.35 * var(--u)) rgba(0, 0, 0, 0.5),
+      0 calc(0.5 * var(--u)) 0 rgba(255, 255, 255, 0.14);
+  }
+
+  /* Power LED, left of the screen where the real one sits. */
+  .screen-wrap::before {
+    content: "";
+    position: absolute;
+    left: calc(1.15 * var(--u));
+    top: calc(4 * var(--u));
+    width: calc(1.2 * var(--u));
+    height: calc(1.2 * var(--u));
+    border-radius: 50%;
+    background: #7bf07b;
+    box-shadow: 0 0 calc(1.2 * var(--u)) #57e257;
+  }
+
+  #screen { width: 100%; height: auto; aspect-ratio: 3 / 2; }
+
+  .overlay { padding: 10px; border-radius: inherit; }
+  .overlay-box p { font-size: 12px; }
+  .overlay-hint { display: none; }   /* nothing to drag a file from */
+
+  #scale-field { display: none; }    /* the skin sizes the screen */
+
+  /* ---- controls ---- */
+
+  .tp {
+    position: relative;
+    display: grid;
+    place-items: center;
+    touch-action: none;
+  }
+
+  .tp-shoulder {
+    grid-area: l;
+    justify-self: start;
+    width: calc(30 * var(--u));
+    height: 100%;
+    border-radius: calc(4 * var(--u)) calc(4 * var(--u)) calc(1.5 * var(--u)) calc(1.5 * var(--u));
+    background: linear-gradient(#a79dea, #7a6ec8);
+    box-shadow:
+      0 calc(0.8 * var(--u)) 0 var(--skin-shadow),
+      inset 0 calc(0.5 * var(--u)) 0 rgba(255, 255, 255, 0.35);
+    color: #2f2672;
+    font: 700 calc(4 * var(--u))/1 system-ui, sans-serif;
+  }
+  .tp-r { grid-area: r; justify-self: end; }
+
+  /* A shoulder is drawn thin; give it a thumb-sized hit area anyway. */
+  .tp-shoulder::before {
+    content: "";
+    position: absolute;
+    inset: calc(-2.5 * var(--u)) calc(-2 * var(--u));
+  }
+
+  .tp-dpad { grid-area: dpad; }
+
+  .tp-cross {
+    position: relative;
+    width: calc(34 * var(--u));
+    height: calc(34 * var(--u));
+  }
+
+  /* The cross tips towards whatever is being held, like a real one rocking. */
+  .tp-cross i {
+    position: absolute;
+    inset: 0;
+    transform: perspective(calc(70 * var(--u))) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    transition: transform 70ms ease-out;
+  }
+  .tp-cross i::before,
+  .tp-cross i::after {
+    content: "";
+    position: absolute;
+    border-radius: calc(1.6 * var(--u));
+    background: linear-gradient(#3b3949, #26242f);
+    box-shadow:
+      0 calc(0.9 * var(--u)) 0 var(--skin-shadow),
+      inset 0 calc(0.4 * var(--u)) 0 rgba(255, 255, 255, 0.08);
+  }
+  .tp-cross i::before { inset: 33.5% 0; }
+  .tp-cross i::after  { inset: 0 33.5%; }
+
+  .tp-dpad[data-dir~="up"]    .tp-cross i { --rx: 13deg; }
+  .tp-dpad[data-dir~="down"]  .tp-cross i { --rx: -13deg; }
+  .tp-dpad[data-dir~="left"]  .tp-cross i { --ry: -13deg; }
+  .tp-dpad[data-dir~="right"] .tp-cross i { --ry: 13deg; }
+
+  .tp-face { grid-area: face; }
+
+  .tp-btn {
+    position: absolute;
+    display: grid;
+    place-items: center;
+    width: calc(16 * var(--u));
+    height: calc(16 * var(--u));
+    border-radius: 50%;
+    background: radial-gradient(circle at 34% 28%, #5d5573, #3a3350 62%, #2e2842);
+    box-shadow:
+      0 calc(1 * var(--u)) 0 var(--skin-shadow),
+      0 calc(1.6 * var(--u)) calc(2 * var(--u)) rgba(0, 0, 0, 0.35),
+      inset 0 calc(0.4 * var(--u)) 0 rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.62);
+    font: 700 calc(5.5 * var(--u))/1 system-ui, sans-serif;
+  }
+  .tp-a { left: calc(50% + 1 * var(--u));  top: calc(50% - 13 * var(--u)); }
+  .tp-b { left: calc(50% - 17 * var(--u)); top: calc(50% - 3 * var(--u)); }
+
+  /* Thumbs are wider than the buttons they aim at. */
+  .tp-btn::before {
+    content: "";
+    position: absolute;
+    inset: calc(-2.5 * var(--u));
+    border-radius: 50%;
+  }
+
+  /* The gap between A and B, which presses both — see data-btn in index.html. */
+  .tp-chord {
+    position: absolute;
+    left: calc(50% - 3.5 * var(--u));
+    top: calc(50% - 3.5 * var(--u));
+    width: calc(7 * var(--u));
+    height: calc(7 * var(--u));
+    border-radius: 50%;
+  }
+
+  .tp-sys {
+    grid-area: sys;
+    grid-auto-flow: column;
+    justify-content: center;   /* auto tracks would otherwise stretch apart */
+    gap: calc(7 * var(--u));
+  }
+
+  .tp-pill {
+    display: grid;
+    justify-items: center;
+    gap: calc(1.2 * var(--u));
+    padding: calc(1.5 * var(--u)) calc(3 * var(--u));
+    color: var(--skin-label);
+    font: 700 calc(2.6 * var(--u))/1 system-ui, sans-serif;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .tp-pill i {
+    width: calc(11 * var(--u));
+    height: calc(3.6 * var(--u));
+    border-radius: 999px;
+    background: linear-gradient(#4a4459, #322d41);
+    box-shadow:
+      0 calc(0.7 * var(--u)) 0 var(--skin-shadow),
+      inset 0 calc(0.3 * var(--u)) 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .tp-speaker {
+    display: block;
+    position: absolute;
+    right: calc(7 * var(--u));
+    bottom: calc(4.5 * var(--u));
+    /* Whole numbers of holes, so the pattern never ends on a half one. */
+    width: calc(12 * var(--u));
+    height: calc(7.2 * var(--u));
+    background:
+      radial-gradient(circle, rgba(24, 16, 60, 0.5) 0 calc(0.55 * var(--u)), transparent calc(0.62 * var(--u)))
+      0 0 / calc(2.4 * var(--u)) calc(2.4 * var(--u));
+  }
+
+  /* ---- what a press looks like ---- */
+
+  .tp-btn.pressed,
+  .tp-shoulder.pressed {
+    filter: brightness(0.92);
+    transform: translateY(calc(0.7 * var(--u)));
+    box-shadow: 0 calc(0.2 * var(--u)) 0 var(--skin-shadow);
+  }
+  .tp-pill.pressed i {
+    transform: translateY(calc(0.5 * var(--u)));
+    box-shadow: 0 calc(0.15 * var(--u)) 0 var(--skin-shadow);
+  }
+}
+
+/* Landscape wraps the controls around the screen, the way the real one is
+   laid out, and the console takes the first screenful to itself. */
+@media (pointer: coarse) and (orientation: landscape) {
+  .stage {
+    order: -1;
+    min-height: calc(100 * var(--vh) - 32px);
+    align-items: center;
+  }
+
+  .gba {
+    --u: min(
+      (100vw - var(--room-x, 32px)) / 191,
+      (100 * var(--vh) - var(--room-y, 32px)) / 80,
+      7px
+    );
+
+    width: calc(191 * var(--u));
+    margin-top: calc(3 * var(--u));   /* room for the shoulders on the top edge */
+    padding: calc(4 * var(--u)) calc(3 * var(--u));
+    grid-template-columns: calc(40 * var(--u)) calc(99 * var(--u)) calc(40 * var(--u));
+    grid-template-rows: calc(12 * var(--u)) 1fr calc(14 * var(--u));
+    grid-template-areas:
+      "l    screen r"
+      "dpad screen face"
+      "sys  screen spk";
+    row-gap: 0;
+    column-gap: calc(3 * var(--u));
+    border-radius:
+      calc(20 * var(--u)) calc(20 * var(--u)) calc(30 * var(--u)) calc(30 * var(--u)) /
+      calc(18 * var(--u)) calc(18 * var(--u)) calc(46 * var(--u)) calc(46 * var(--u));
+  }
+
+  .screen-wrap { width: calc(99 * var(--u)); }
+
+  .tp-shoulder {
+    align-self: start;
+    width: calc(36 * var(--u));
+    height: calc(15 * var(--u));
+    margin-top: calc(-7 * var(--u));
+  }
+  .tp-l {
+    margin-left: calc(-1 * var(--u));
+    border-radius:
+      calc(16 * var(--u)) calc(5 * var(--u)) calc(2 * var(--u)) calc(2 * var(--u)) /
+      calc(12 * var(--u)) calc(5 * var(--u)) calc(2 * var(--u)) calc(2 * var(--u));
+  }
+  .tp-r {
+    margin-right: calc(-1 * var(--u));
+    border-radius:
+      calc(5 * var(--u)) calc(16 * var(--u)) calc(2 * var(--u)) calc(2 * var(--u)) /
+      calc(5 * var(--u)) calc(12 * var(--u)) calc(2 * var(--u)) calc(2 * var(--u));
+  }
+
+  .tp-sys {
+    justify-self: end;
+    gap: calc(2 * var(--u));
+  }
+  .tp-pill { padding: calc(1.5 * var(--u)) calc(2 * var(--u)); }
+  .tp-pill i { width: calc(9 * var(--u)); }
+
+  .tp-speaker {
+    grid-area: spk;
+    position: static;
+    place-self: center;
+  }
+}
 </style>
 </head>
 <body>
@@ -366,17 +697,36 @@ select:disabled {
     </div>
   </header>
 
-  <main class="stage">
-    <div class="screen-wrap" id="screen-wrap">
-      <canvas id="screen" width="240" height="160" tabindex="0"></canvas>
-      <div class="overlay" id="overlay">
-        <div class="overlay-box">
-          <div class="spinner" id="spinner"></div>
-          <p id="overlay-text">Loading mGBA core…</p>
-          <button id="overlay-action" class="btn primary" hidden>Click to start</button>
-          <p id="overlay-hint" class="overlay-hint" hidden>…or drop a file anywhere on this page</p>
+  <main class="stage" id="stage">
+    <div class="gba" id="gba">
+      <div class="screen-wrap" id="screen-wrap">
+        <canvas id="screen" width="240" height="160" tabindex="0"></canvas>
+        <div class="overlay" id="overlay">
+          <div class="overlay-box">
+            <div class="spinner" id="spinner"></div>
+            <p id="overlay-text">Loading mGBA core…</p>
+            <button id="overlay-action" class="btn primary" hidden>Click to start</button>
+            <p id="overlay-hint" class="overlay-hint" hidden>…or drop a file anywhere on this page</p>
+          </div>
         </div>
       </div>
+
+      <!-- On-screen controls. Only touch devices show them; see style.css. -->
+      <div class="tp tp-shoulder tp-l" data-btn="l" aria-hidden="true">L</div>
+      <div class="tp tp-shoulder tp-r" data-btn="r" aria-hidden="true">R</div>
+      <div class="tp tp-dpad" id="dpad" aria-hidden="true">
+        <div class="tp-cross" id="dpad-cross"><i></i></div>
+      </div>
+      <div class="tp tp-face" aria-hidden="true">
+        <div class="tp-btn tp-b" data-btn="b">B</div>
+        <div class="tp-btn tp-a" data-btn="a">A</div>
+        <div class="tp-chord" data-btn="a b"></div>
+      </div>
+      <div class="tp tp-sys" aria-hidden="true">
+        <div class="tp-pill" data-btn="select"><i></i>Select</div>
+        <div class="tp-pill" data-btn="start"><i></i>Start</div>
+      </div>
+      <div class="tp-speaker" aria-hidden="true"></div>
     </div>
   </main>
 
@@ -402,7 +752,7 @@ select:disabled {
     <label class="field">Vol
       <input id="volume" type="range" min="0" max="100" value="70">
     </label>
-    <label class="field">Scale
+    <label class="field" id="scale-field">Scale
       <select id="scale">
         <option value="0">Fit</option>
         <option value="1">1×</option>
@@ -543,6 +893,10 @@ const el = {
   gamepadStatus: $("gamepad-status"),
   bindingTable: $("binding-table"),
   controlsPanel: $("controls-panel"),
+  stage: $("stage"),
+  gba: $("gba"),
+  dpad: $("dpad"),
+  dpadCross: $("dpad-cross"),
 };
 
 function setStatus(text, kind = "") {
@@ -690,6 +1044,10 @@ function releaseAllInputs() {
   }
   if (fastForwarding) setFastForward(false);
   if (rewinding) setRewind(false);
+
+  // Fingers resting on the skin are not holding anything any more either.
+  touches.clear();
+  paintTouchPad();
 }
 
 function setFastForward(on) {
@@ -879,6 +1237,126 @@ function pollGamepads() {
   requestAnimationFrame(pollGamepads);
 }
 
+// ---------------------------------------------------------------- touch pad
+
+/**
+ * The on-screen console.
+ *
+ * index.html carries a GBA skin around the canvas that style.css only lays out
+ * on touch-first devices. Each finger is just another input source feeding
+ * `setButton`, so touch mixes with keyboard and gamepad like anything else.
+ */
+const touchQuery = matchMedia("(pointer: coarse)");
+
+/**
+ * How much of a finger's offset from the D-pad's centre has to be on one axis
+ * for that direction to count. 0.45 leaves each corner ~36° of diagonal.
+ */
+const DPAD_AXIS = 0.45;
+
+/** Dead centre of the D-pad, as a fraction of its half-width. */
+const DPAD_DEAD = 0.18;
+
+/** pointerId → { dpad, held } for every finger currently on a control. */
+const touches = new Map();
+const touchButtons = document.querySelectorAll(".gba [data-btn]");
+
+/**
+ * Which way a finger at (x, y) pushes the D-pad. A finger that lands on it
+ * keeps steering it wherever it wanders, so a thumb can roll between
+ * directions — and off the edge — without losing the press.
+ */
+function dpadDirections(x, y) {
+  const box = el.dpadCross.getBoundingClientRect();
+  const dx = (x - (box.left + box.width / 2)) / (box.width / 2);
+  const dy = (y - (box.top + box.height / 2)) / (box.height / 2);
+  const distance = Math.hypot(dx, dy);
+  if (distance < DPAD_DEAD) return [];
+
+  const out = [];
+  if (dx < -DPAD_AXIS * distance) out.push("left");
+  if (dx >  DPAD_AXIS * distance) out.push("right");
+  if (dy < -DPAD_AXIS * distance) out.push("up");
+  if (dy >  DPAD_AXIS * distance) out.push("down");
+  return out;
+}
+
+/**
+ * The buttons under a finger. `data-btn` may name more than one, which is what
+ * makes the gap between A and B press both.
+ */
+function touchTargets(touch, x, y) {
+  if (touch.dpad) return dpadDirections(x, y);
+  const hit = document.elementFromPoint(x, y)?.closest("[data-btn]");
+  return hit ? hit.dataset.btn.split(" ") : [];
+}
+
+function paintTouchPad() {
+  const held = new Set();
+  for (const touch of touches.values()) for (const id of touch.held) held.add(id);
+
+  for (const node of touchButtons) node.classList.toggle("pressed", held.has(node.dataset.btn));
+  el.dpad.dataset.dir = ["up", "down", "left", "right"].filter((d) => held.has(d)).join(" ");
+}
+
+/** Re-aims one finger, pressing and releasing whatever it moved onto and off. */
+function moveTouch(pointerId, x, y) {
+  const touch = touches.get(pointerId);
+  if (!touch) return;
+
+  const next = new Set(touchTargets(touch, x, y));
+  const source = "touch" + pointerId;
+  let pressedSomething = false;
+
+  for (const id of touch.held) if (!next.has(id)) setButton(id, source, false);
+  for (const id of next) {
+    if (touch.held.has(id)) continue;
+    setButton(id, source, true);
+    pressedSomething = true;
+  }
+  touch.held = next;
+
+  // Browsers refuse (and complain) before the page's first real tap.
+  if (pressedSomething && navigator.userActivation?.hasBeenActive !== false) {
+    navigator.vibrate?.(8);
+  }
+  paintTouchPad();
+}
+
+function endTouch(pointerId) {
+  const touch = touches.get(pointerId);
+  if (!touch) return;
+  for (const id of touch.held) setButton(id, "touch" + pointerId, false);
+  touches.delete(pointerId);
+  paintTouchPad();
+}
+
+function wireTouchPad() {
+  el.gba.addEventListener("pointerdown", (e) => {
+    const zone = e.target.closest(".tp");
+    if (!zone) return;
+    e.preventDefault();
+    // Capture explicitly: a finger that slides off the skin — or a mouse, in a
+    // device emulator — still has to report where it let go.
+    zone.setPointerCapture(e.pointerId);
+    touches.set(e.pointerId, { dpad: zone === el.dpad, held: new Set() });
+    moveTouch(e.pointerId, e.clientX, e.clientY);
+  });
+
+  el.gba.addEventListener("pointermove", (e) => moveTouch(e.pointerId, e.clientX, e.clientY));
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
+    el.gba.addEventListener(type, (e) => endTouch(e.pointerId));
+  }
+
+  // Touch browsers would rather select, magnify or zoom than let you play.
+  el.gba.addEventListener("touchstart", (e) => {
+    if (e.target.closest(".tp")) e.preventDefault();
+  }, { passive: false });
+  el.gba.addEventListener("contextmenu", (e) => {
+    if (e.target.closest(".tp")) e.preventDefault();
+  });
+}
+
 // ---------------------------------------------------------------- rebinding
 
 function stopListening() {
@@ -979,6 +1457,15 @@ document.addEventListener("pointerdown", (e) => {
 // ---------------------------------------------------------------- display
 
 function applyScale() {
+  // On the skin the screen is sized by the skin, so the Scale control (which is
+  // hidden there) must not leave an inline size behind.
+  if (touchQuery.matches) {
+    el.canvas.style.width = "";
+    el.canvas.style.height = "";
+    el.canvas.style.aspectRatio = "";
+    return;
+  }
+
   const scale = parseInt(settings.scale, 10) || 0;
   if (scale === 0) {
     el.canvas.style.width = "min(100%, 720px)";
@@ -1223,7 +1710,10 @@ function showIdleOverlay(roms = libraryRoms()) {
     showOverlay("Ready — " + (el.romSelect.value || roms[0]), {
       spinner: false,
       hint: true,
-      action: { label: "Click to start", onClick: startSelectedRom },
+      action: {
+        label: touchQuery.matches ? "Tap to start" : "Click to start",
+        onClick: startSelectedRom,
+      },
     });
   }
 }
@@ -1301,7 +1791,9 @@ function unlockAudio() {
   ctx.resume().then(() => { audioReady = true; }).catch(() => {});
 }
 
+// A touch only counts as a gesture once it ends, so try again on the way up.
 document.addEventListener("pointerdown", unlockAudio, true);
+document.addEventListener("pointerup", unlockAudio, true);
 document.addEventListener("keydown", unlockAudio, true);
 
 // ------------------------------------------------------------ drag and drop
@@ -1366,9 +1858,12 @@ function wireToolbar() {
   $("btn-load-state").addEventListener("click", doLoadState);
   $("btn-shot").addEventListener("click", downloadScreenshot);
 
+  // iPhone Safari has no element fullscreen at all, so don't offer a dead button.
+  $("btn-fullscreen").hidden = !document.fullscreenEnabled;
   $("btn-fullscreen").addEventListener("click", () => {
     if (document.fullscreenElement) document.exitFullscreen();
-    else el.screenWrap.requestFullscreen?.().catch(() => {});
+    // On the skin, fullscreen means the whole console rather than its screen.
+    else (touchQuery.matches ? el.stage : el.screenWrap).requestFullscreen?.().catch(() => {});
   });
 
   $("btn-controls").addEventListener("click", () => {
@@ -1438,8 +1933,11 @@ function wireToolbar() {
 
 async function boot() {
   wireToolbar();
+  wireTouchPad();
   renderBindings();
   applyScale();
+  // Plugging in a mouse, or docking a tablet, changes which page this is.
+  touchQuery.addEventListener("change", applyScale);
   requestAnimationFrame(pollGamepads);
 
   showOverlay("Loading mGBA core…");

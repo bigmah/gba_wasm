@@ -31,9 +31,13 @@ already asking, and is not needed otherwise.
 
 ```bash
 cargo run --release -- --port 3000      # different port
-cargo run --release -- --host 0.0.0.0   # reachable from your network
+cargo run --release -- --host 0.0.0.0   # reachable from your network*
 cargo run --release -- --help
 ```
+
+\* Reachable, but other machines get a plain-http origin, and browsers will not
+cross-origin isolate one — so the threaded core cannot start there. See
+[On a phone](#on-a-phone).
 
 ## Your ROM library
 
@@ -68,6 +72,35 @@ already in progress.
 | Save state | <kbd>F5</kbd> | — |
 | Load state | <kbd>F8</kbd> | — |
 | Reset | unbound | — |
+
+## On a phone
+
+Touch devices get the screen set into an on-screen GBA — D-pad, A, B, L, R,
+Start and Select — scaled as one piece to whatever room the viewport has.
+Portrait stacks the controls under the screen; landscape wraps them around it
+the way the real one is laid out and gives the console the first screenful,
+with the ROM picker and the toolbar below it.
+
+The D-pad takes diagonals, and a thumb that lands on it keeps steering until it
+lifts, even if it slides off the edge. The gap between A and B presses both, and
+a finger can slide from one to the other. Several fingers work at once, and
+touch mixes with a keyboard or a paired gamepad — a button is held while any
+source holds it.
+
+The skin appears wherever the browser reports a coarse primary pointer, so
+Chrome's device mode shows it on a desktop too.
+
+**Playing on your own phone.** The served build cannot do this: its threaded
+core needs cross-origin isolation, isolation needs a secure context, and
+`http://<your-lan-ip>:8080` is not one — the page says so rather than failing
+quietly. The single-file build has no such requirement, so serve that instead:
+
+```bash
+python3 tools/bundle.py
+python3 -m http.server 8000 -d dist --bind 0.0.0.0
+```
+
+Then open `http://<your-lan-ip>:8000/gba-wasm.html` on the phone.
 
 ## Changing the controls
 
@@ -122,9 +155,9 @@ page detects this and says so instead of failing silently.
 
 **Input routing.** The core's own SDL keyboard handling is switched off with
 `toggleInput(false)`, and every input is fed through `buttonPress`/
-`buttonUnpress` instead. One path for keyboard, gamepad, and analog stick, which
-is what makes arbitrary remapping possible. A button is held while *any* source
-holds it, so keyboard and gamepad never fight each other.
+`buttonUnpress` instead. One path for keyboard, gamepad, analog stick, and every
+finger on the on-screen pad, which is what makes arbitrary remapping possible. A
+button is held while *any* source holds it, so no two of them fight each other.
 
 **Core callbacks must be registered after `loadGame`.** Loading a game rebuilds
 the core and discards previously registered callbacks. Registering before the
