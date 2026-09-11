@@ -1,0 +1,14 @@
+[package]
+name = "gba-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Local web server hosting a browser GBA emulator (mGBA compiled to WebAssembly). ROMs are user-supplied."
+license = "MIT"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tower-http = { version = "0.6", features = ["fs", "set-header"] }
+
+[profile.release]
+opt-level = 2

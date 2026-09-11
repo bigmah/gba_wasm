@@ -1,0 +1,473 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f0a9105..014e851 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -237,7 +237,9 @@ if(WIN32)
+ elseif(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+ 	set(BUILD_STATIC ON)
+ 	set(BUILD_SHARED OFF)
+-	set(USE_PTHREADS ON)
++	if(NOT DEFINED USE_PTHREADS)
++		set(USE_PTHREADS ON)
++	endif()
+ 	add_definitions(-D_GNU_SOURCE)
+ 	list(APPEND OS_DEFINES ENABLE_VFS_FD)
+ 	list(APPEND CORE_VFS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/util/vfs/vfs-fd.c ${CMAKE_CURRENT_SOURCE_DIR}/src/util/vfs/vfs-dirent.c)
+diff --git a/src/platform/wasm/CMakeLists.txt b/src/platform/wasm/CMakeLists.txt
+index 751e8b1..806ecca 100644
+--- a/src/platform/wasm/CMakeLists.txt
++++ b/src/platform/wasm/CMakeLists.txt
+@@ -4,21 +4,17 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} \
+ 	-s INITIAL_MEMORY=256mb \
+ 	-s EXPORTED_RUNTIME_METHODS=[\"FS\",\"cwrap\",\"addFunction\",\"removeFunction\"] \
+ 	-s ALLOW_TABLE_GROWTH=1 \
+-	-s ENVIRONMENT='web,worker' \
+-	-s PTHREAD_POOL_SIZE=5 \
+-	-s EXPORT_ES6=1 \
++	-s ENVIRONMENT='web' \
+ 	-s MODULARIZE=1 \
+ 	-s EXPORT_NAME=${CMAKE_PROJECT_NAME} \
+ 	-s MIN_WEBGL_VERSION=2 \
+ 	-s MAX_WEBGL_VERSION=2 \
+-	-gsource-map \
+ 	--flto \
+-	-pthread \
+ 	--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/pre.js")
+-add_executable(${BINARY_NAME}.js main.c memory.c ../sdl/sdl-audio.c ../sdl/sdl-events.c ../sdl/sdl-text.c)
++add_executable(${BINARY_NAME}.js main.c single-thread.c memory.c ../sdl/sdl-audio.c ../sdl/sdl-events.c ../sdl/sdl-text.c)
+ set_target_properties(${BINARY_NAME}.js PROPERTIES
+ 	COMPILE_DEFINITIONS "${OS_DEFINES};${FEATURE_DEFINES};${FUNCTION_DEFINES}"
+-	COMPILE_OPTIONS "-s;USE_SDL=2;-pthread"
++	COMPILE_OPTIONS "-s;USE_SDL=2"
+ 	LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/pre.js"
+ 	OUTPUT_NAME ${BINARY_NAME})
+ target_link_libraries(${BINARY_NAME}.js ${BINARY_NAME} ${OS_LIB})
+diff --git a/src/platform/wasm/main.c b/src/platform/wasm/main.c
+index 14d9a8a..204a4a3 100644
+--- a/src/platform/wasm/main.c
++++ b/src/platform/wasm/main.c
+@@ -13,6 +13,8 @@
+ #include <mgba/gba/interface.h>
+ #include <mgba/internal/gba/input.h>
+ 
++#include "single-thread.h"
++
+ #include "platform/sdl/sdl-audio.h"
+ #include "platform/sdl/sdl-events.h"
+ #include "platform/sdl/sdl-text.h"
+@@ -721,7 +723,11 @@ void runLoop() {
+ 			if (didFail)
+ 				EM_ASM({ console.error("thread instantiation failed") });
+ 
+-			mSDLInitAudio(&renderer->audio, renderer->thread);
++			// No CPU thread to synchronise against: hand the audio callback the
++			// core directly and leave sync NULL, which it already null-guards.
++			mSDLInitAudio(&renderer->audio, NULL);
++			renderer->audio.core = renderer->core;
++			renderer->audio.sync = NULL;
+ 			mSDLResumeAudio(&renderer->audio);
+ 			updateFastForward(renderer->fastForwardMultiplier);
+ 
+@@ -743,7 +749,7 @@ void runLoop() {
+ 					break;
+ 				};
+ 			}
+-			if (mCoreSyncWaitFrameStart(&renderer->thread->impl->sync)) {
++			if (mCoreSingleThreadStep(renderer->thread, renderer->timestepSync)) {
+ 				unsigned w, h;
+ 				renderer->core->currentVideoSize(renderer->core, &w, &h);
+ 
+@@ -758,7 +764,6 @@ void runLoop() {
+ 				SDL_LockTexture(renderer->sdlTex, 0, (void**) &renderer->outputBuffer, &stride);
+ 				renderer->core->setVideoBuffer(renderer->core, renderer->outputBuffer, stride / BYTES_PER_PIXEL);
+ 			}
+-			mCoreSyncWaitFrameEnd(&renderer->thread->impl->sync);
+ 		}
+ 		if (renderer->showFpsCounter)
+ 			updateFPS();
+diff --git a/src/platform/wasm/pre.js b/src/platform/wasm/pre.js
+index bc2cf19..6ac284c 100644
+--- a/src/platform/wasm/pre.js
++++ b/src/platform/wasm/pre.js
+@@ -41,55 +41,82 @@ Module.listSaves = () => {
+   return FS.readdir('/data/saves/');
+ };
+ 
+-Module.FSInit = () => {
+-  return new Promise((resolve, reject) => {
+-    FS.mkdir('/data');
++// Browsers block IndexedDB on file:// origins (Chrome throws SecurityError on
++// open). Probe it up front so the emulator can still run from a bare file with
++// an in-memory filesystem instead of failing to boot; nothing persists then.
++const probeIndexedDB = () =>
++  new Promise((resolve) => {
++    let request;
++    try {
++      request = indexedDB.open('mgba-storage-probe');
++    } catch (e) {
++      resolve(false);
++      return;
++    }
++    if (!request) {
++      resolve(false);
++      return;
++    }
++    const settle = (value) => resolve(value);
++    request.onsuccess = () => {
++      try {
++        request.result.close();
++      } catch (e) {}
++      settle(true);
++    };
++    request.onerror = () => settle(false);
++    request.onblocked = () => settle(false);
++  });
++
++// True once FSInit has run if save data will outlive the page.
++Module.persistent = false;
++
++Module.FSInit = async () => {
++  Module.persistent = await probeIndexedDB();
++
++  FS.mkdir('/data');
++  FS.mkdir('/autosave');
++
++  if (Module.persistent) {
+     FS.mount(FS.filesystems.IDBFS, {}, '/data');
+ 
+     // mount auto save directory, this should auto persist, while the data mount should not
+-    FS.mkdir('/autosave');
+     FS.mount(FS.filesystems.IDBFS, { autoPersist: true }, '/autosave');
+ 
+     // load data from IDBFS
+-    FS.syncfs(true, (err) => {
+-      if (err) {
+-        reject(new Error(`Error syncing app data from IndexedDB: ${err}`));
+-      }
+-
+-      // When we read from indexedb, these directories may or may not exist.
+-      // If we mkdir and they already exist they throw, so just catch all of them.
+-      try {
+-        FS.mkdir('/data/saves');
+-      } catch (e) {}
+-      try {
+-        FS.mkdir('/data/states');
+-      } catch (e) {}
+-      try {
+-        FS.mkdir('/data/games');
+-      } catch (e) {}
+-      try {
+-        FS.mkdir('/data/cheats');
+-      } catch (e) {}
+-      try {
+-        FS.mkdir('/data/screenshots');
+-      } catch (e) {}
+-      try {
+-        FS.mkdir('/data/patches');
+-      } catch (e) {}
+-
+-      resolve();
++    await new Promise((resolve, reject) => {
++      FS.syncfs(true, (err) => {
++        if (err) {
++          reject(new Error(`Error syncing app data from IndexedDB: ${err}`));
++          return;
++        }
++        resolve();
++      });
+     });
+-  });
++  }
++
++  // When we read from indexedb, these directories may or may not exist.
++  // If we mkdir and they already exist they throw, so just catch all of them.
++  for (const dir of ['/data/saves', '/data/states', '/data/games', '/data/cheats',
++                     '/data/screenshots', '/data/patches']) {
++    try {
++      FS.mkdir(dir);
++    } catch (e) {}
++  }
+ };
+ 
+ Module.FSSync = () => {
++  if (!Module.persistent) {
++    // Nothing is mounted to sync to.
++    return Promise.resolve();
++  }
+   return new Promise((resolve, reject) => {
+     // write data to IDBFS
+     FS.syncfs((err) => {
+       if (err) {
+         reject(new Error(`Error syncing app data to IndexedDB: ${err}`));
++        return;
+       }
+-
+       resolve();
+     });
+   });
+diff --git a/src/platform/wasm/single-thread.c b/src/platform/wasm/single-thread.c
+new file mode 100644
+index 0000000..da93839
+--- /dev/null
++++ b/src/platform/wasm/single-thread.c
+@@ -0,0 +1,235 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++/* Single-threaded stand-ins for the mCoreThread API.
++ *
++ * The threaded wasm build runs the core on its own pthread, so every call that
++ * reaches into the core from the main thread has to fence it with
++ * mCoreThreadInterrupt/mCoreThreadContinue. Here the core runs inline on the
++ * browser's main loop (see runLoop in main.c), so it is never mid-frame when
++ * one of these is called and the fencing collapses to nothing.
++ *
++ * Keeping the mCoreThread surface rather than deleting it from main.c means the
++ * `renderer->thread` sentinel and all its null checks keep working unchanged,
++ * and the diff against upstream stays confined to the run loop.
++ */
++
++#include "single-thread.h"
++
++#include <mgba/core/core.h>
++#include <mgba/core/rewind.h>
++#include <mgba/core/thread.h>
++
++#include <emscripten.h>
++
++// mCoreRewindContext has no "is initialized" flag of its own and double-init
++// would leak its patch vector, so track it here. There is exactly one core in
++// this build, so a single static is enough.
++static bool _rewindActive = false;
++
++// Fixed-timestep accumulator, mirroring the one the threaded build runs on its
++// CPU thread. No sleeping here: requestAnimationFrame already paces us.
++static double _previousTime = 0.0;
++static double _accumulator = 0.0;
++
++// Per-frame rewind bookkeeping, registered as a core callback exactly as the
++// threaded build does, so it stays in step with the core's own frame boundaries.
++static void _frameStarted(void* context) {
++	struct mCoreThread* thread = context;
++	if (!thread || !thread->impl) {
++		return;
++	}
++	if (!thread->core->opts.rewindEnable || thread->core->opts.rewindBufferCapacity <= 0) {
++		return;
++	}
++	if (thread->impl->rewinding) {
++		mCoreRewindRestore(&thread->impl->rewind, thread->core, 1);
++		return;
++	}
++	if (thread->impl->rewind.rewindFrameCounter == 0) {
++		mCoreRewindAppend(&thread->impl->rewind, thread->core);
++		thread->impl->rewind.rewindFrameCounter = thread->core->opts.rewindBufferInterval;
++	}
++	thread->impl->rewind.rewindFrameCounter--;
++}
++
++static void _frameEnded(void* context) {
++	struct mCoreThread* thread = context;
++	if (thread && thread->frameCallback) {
++		thread->frameCallback(thread);
++	}
++}
++
++void mCoreThreadAddCoreCallbacks(struct mCoreThread* threadContext) {
++	struct mCoreCallbacks callbacks = {
++		.videoFrameStarted = _frameStarted,
++		.videoFrameEnded = _frameEnded,
++		.context = threadContext,
++	};
++	threadContext->core->addCoreCallbacks(threadContext->core, &callbacks);
++}
++
++void mCoreThreadRewindParamsChanged(struct mCoreThread* threadContext) {
++	if (!threadContext || !threadContext->impl) {
++		return;
++	}
++	struct mCore* core = threadContext->core;
++	bool wanted = core->opts.rewindEnable && core->opts.rewindBufferCapacity > 0;
++	if (wanted == _rewindActive) {
++		return;
++	}
++	if (wanted) {
++		mCoreRewindContextInit(&threadContext->impl->rewind, core->opts.rewindBufferCapacity, false);
++	} else {
++		mCoreRewindContextDeinit(&threadContext->impl->rewind);
++	}
++	_rewindActive = wanted;
++}
++
++bool mCoreThreadStart(struct mCoreThread* threadContext) {
++	struct mCore* core = threadContext->core;
++
++	threadContext->impl = calloc(1, sizeof(*threadContext->impl));
++	if (!threadContext->impl) {
++		return false;
++	}
++	threadContext->impl->core = core;
++	threadContext->impl->state = mTHREAD_RUNNING;
++	threadContext->impl->rewinding = false;
++
++	// The core still gets a sync block because it posts frames and audio
++	// through it, but both waits stay off: with nothing to hand off to, a
++	// wait would just stall the browser's main loop.
++	threadContext->impl->sync.videoFrameWait = false;
++	threadContext->impl->sync.audioWait = false;
++	threadContext->impl->sync.fpsTarget = core->opts.fpsTarget;
++	threadContext->impl->sync.audioHighWater = 512;
++	core->setSync(core, &threadContext->impl->sync);
++
++	mCoreThreadAddCoreCallbacks(threadContext);
++	mCoreThreadRewindParamsChanged(threadContext);
++
++	if (threadContext->startCallback) {
++		threadContext->startCallback(threadContext);
++	}
++
++	core->reset(core);
++
++	if (threadContext->resetCallback) {
++		threadContext->resetCallback(threadContext);
++	}
++
++	_previousTime = emscripten_get_now();
++	_accumulator = 0.0;
++	return true;
++}
++
++bool mCoreSingleThreadStep(struct mCoreThread* threadContext, bool timestepSync) {
++	if (!mCoreThreadIsActive(threadContext)) {
++		return false;
++	}
++	struct mCore* core = threadContext->core;
++
++	if (!timestepSync) {
++		core->runFrame(core);
++		return true;
++	}
++
++	float fpsTarget = threadContext->impl->sync.fpsTarget;
++	if (fpsTarget <= 0) {
++		fpsTarget = 60.0f;
++	}
++	const double stepMs = 1000.0 / fpsTarget;
++	const double maxCatchup = 250.0; // clamp so a backgrounded tab cannot bank hours of frames
++
++	// Fast-forward raises fpsTarget, so the per-tick frame budget has to rise
++	// with it or the accumulator grows without bound and never catches up.
++	int maxSteps = (int) (fpsTarget / 30.0) + 2;
++
++	double now = emscripten_get_now();
++	double dt = now - _previousTime;
++	if (dt > maxCatchup) {
++		dt = maxCatchup;
++	}
++	_previousTime = now;
++	_accumulator += dt;
++
++	int steps = 0;
++	while (_accumulator >= stepMs && steps < maxSteps) {
++		core->runFrame(core);
++		_accumulator -= stepMs;
++		++steps;
++	}
++	if (steps == maxSteps) {
++		// Ran out of budget; drop the backlog rather than accumulate debt.
++		_accumulator = 0.0;
++	}
++	return steps > 0;
++}
++
++bool mCoreThreadIsActive(struct mCoreThread* threadContext) {
++	if (!threadContext || !threadContext->impl) {
++		return false;
++	}
++	return threadContext->impl->state == mTHREAD_RUNNING;
++}
++
++void mCoreThreadPause(struct mCoreThread* threadContext) {
++	if (threadContext && threadContext->impl) {
++		threadContext->impl->state = mTHREAD_PAUSED;
++		if (threadContext->pauseCallback) {
++			threadContext->pauseCallback(threadContext);
++		}
++	}
++}
++
++void mCoreThreadUnpause(struct mCoreThread* threadContext) {
++	if (threadContext && threadContext->impl) {
++		threadContext->impl->state = mTHREAD_RUNNING;
++		// Re-baseline the clock: time spent paused is not frame debt.
++		_previousTime = emscripten_get_now();
++		_accumulator = 0.0;
++		if (threadContext->unpauseCallback) {
++			threadContext->unpauseCallback(threadContext);
++		}
++	}
++}
++
++void mCoreThreadEnd(struct mCoreThread* threadContext) {
++	if (threadContext && threadContext->impl) {
++		threadContext->impl->state = mTHREAD_EXITING;
++	}
++}
++
++void mCoreThreadJoin(struct mCoreThread* threadContext) {
++	if (!threadContext || !threadContext->impl) {
++		return;
++	}
++	if (_rewindActive) {
++		mCoreRewindContextDeinit(&threadContext->impl->rewind);
++		_rewindActive = false;
++	}
++	if (threadContext->cleanCallback) {
++		threadContext->cleanCallback(threadContext);
++	}
++	threadContext->core->clearCoreCallbacks(threadContext->core);
++	free(threadContext->impl);
++	threadContext->impl = NULL;
++}
++
++void mCoreThreadSetRewinding(struct mCoreThread* threadContext, bool rewinding) {
++	if (threadContext && threadContext->impl) {
++		threadContext->impl->rewinding = rewinding;
++	}
++}
++
++// The core is only ever touched between frames here, so there is nothing to
++// interrupt and nothing to resume.
++void mCoreThreadInterrupt(struct mCoreThread* threadContext) {
++	UNUSED(threadContext);
++}
++
++void mCoreThreadContinue(struct mCoreThread* threadContext) {
++	UNUSED(threadContext);
++}
+diff --git a/src/platform/wasm/single-thread.h b/src/platform/wasm/single-thread.h
+new file mode 100644
+index 0000000..cafd57b
+--- /dev/null
++++ b/src/platform/wasm/single-thread.h
+@@ -0,0 +1,19 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++#ifndef WASM_SINGLE_THREAD_H
++#define WASM_SINGLE_THREAD_H
++
++#include <mgba-util/common.h>
++
++CXX_GUARD_START
++
++struct mCoreThread;
++
++// Advances the core by however many frames the fixed timestep owes us, and
++// returns true if at least one ran (i.e. there is a new frame worth blitting).
++bool mCoreSingleThreadStep(struct mCoreThread* threadContext, bool timestepSync);
++
++CXX_GUARD_END
++
++#endif

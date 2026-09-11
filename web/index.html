@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GBA WASM</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <h1>GBA&nbsp;WASM</h1>
+    <div class="topbar-right">
+      <select id="rom-select" title="Your ROM library, stored in this browser"></select>
+      <button id="btn-add-rom" class="btn small" title="Add a ROM from your computer">Add ROM…</button>
+      <button id="btn-remove-rom" class="btn small" title="Remove the selected ROM from this browser">Remove</button>
+      <span id="status" class="status">booting…</span>
+    </div>
+  </header>
+
+  <main class="stage">
+    <div class="screen-wrap" id="screen-wrap">
+      <canvas id="screen" width="240" height="160" tabindex="0"></canvas>
+      <div class="overlay" id="overlay">
+        <div class="overlay-box">
+          <div class="spinner" id="spinner"></div>
+          <p id="overlay-text">Loading mGBA core…</p>
+          <button id="overlay-action" class="btn primary" hidden>Click to start</button>
+          <p id="overlay-hint" class="overlay-hint" hidden>…or drop a file anywhere on this page</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toolbar">
+    <button id="btn-pause"      class="btn" title="Pause / resume">Pause</button>
+    <button id="btn-reset"      class="btn" title="Reset the game">Reset</button>
+    <button id="btn-ff"         class="btn" title="Hold or toggle fast-forward">Fast&nbsp;fwd</button>
+
+    <span class="sep"></span>
+
+    <label class="field">Slot
+      <select id="state-slot">
+        <option>1</option><option>2</option><option>3</option>
+        <option>4</option><option>5</option><option>6</option>
+        <option>7</option><option>8</option><option>9</option>
+      </select>
+    </label>
+    <button id="btn-save-state" class="btn" title="Save state to slot">Save</button>
+    <button id="btn-load-state" class="btn" title="Load state from slot">Load</button>
+
+    <span class="sep"></span>
+
+    <label class="field">Vol
+      <input id="volume" type="range" min="0" max="100" value="70">
+    </label>
+    <label class="field">Scale
+      <select id="scale">
+        <option value="0">Fit</option>
+        <option value="1">1×</option>
+        <option value="2">2×</option>
+        <option value="3" selected>3×</option>
+        <option value="4">4×</option>
+        <option value="5">5×</option>
+      </select>
+    </label>
+
+    <span class="sep"></span>
+
+    <button id="btn-shot"       class="btn" title="Download a screenshot">Screenshot</button>
+    <button id="btn-fullscreen" class="btn" title="Fullscreen">Fullscreen</button>
+    <button id="btn-controls"   class="btn primary" title="Configure controls">Controls</button>
+  </div>
+
+  <section class="panel" id="controls-panel" hidden>
+    <div class="panel-head">
+      <h2>Controls</h2>
+      <div class="panel-head-actions">
+        <button id="btn-defaults" class="btn small">Restore defaults</button>
+        <button id="btn-close-controls" class="btn small">Close</button>
+      </div>
+    </div>
+
+    <p class="hint">
+      Click a slot and press a key (or a gamepad button) to rebind it.
+      <kbd>Esc</kbd> cancels, <kbd>Delete</kbd> clears. Bindings save automatically.
+    </p>
+
+    <div class="binding-table" id="binding-table">
+      <div class="binding-row header">
+        <span>Action</span><span>Keyboard</span><span>Gamepad</span>
+      </div>
+      <!-- rows injected by app.js -->
+    </div>
+
+    <div class="gamepad-status" id="gamepad-status">No gamepad detected.</div>
+  </section>
+
+  <footer class="footer">
+    <span id="fps" class="fps">—</span>
+    <span id="core-version" class="muted"></span>
+  </footer>
+
+</div>
+
+<input id="file-input" type="file" multiple hidden
+       accept=".gba,.gbc,.gb,.zip,.7z,.sav,.ss1,.ss2,.ss3,.ss4,.ss5,.ss6,.ss7,.ss8,.ss9">
+
+<div class="drop-veil" id="drop-veil" hidden>
+  <div class="drop-veil-box">Drop to add to your library</div>
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+This project bundles mGBA, which is licensed under the Mozilla Public License
+2.0. A copy of that license is in LICENSE-MPL-2.0.txt.
+
+mGBA
+  Copyright (c) 2013-2025 Jeffrey Pfau
+  https://mgba.io / https://github.com/mgba-emu/mgba
+  Licensed under MPL-2.0.
+
+The prebuilt cores in web/vendor/ come from @thenick775/mgba-wasm v2.5.1, a
+WebAssembly build of the mGBA fork at
+https://github.com/thenick775/mgba/tree/feature/wasm (MPL-2.0):
+
+  web/vendor/mgba.js, web/vendor/mgba.wasm
+      the published threaded core, unmodified.
+
+  web/vendor/mgba-single-thread.js, web/vendor/mgba-single-thread.wasm
+      the same core rebuilt from source with threading disabled, using
+      tools/mgba-single-thread.patch. See tools/build-core.sh.
+
+tools/mgba-single-thread.patch is a modification of mGBA source files and is
+therefore itself covered by MPL-2.0, as is the copy of the built core inlined
+into dist/gba-wasm.html.
+
+mGBA's own third-party dependencies (SDL2, zlib, libpng, and others) carry
+their own licenses; see the mGBA repository for the full list.
+
+No commercial game ROMs are distributed with this project. The one ROM here,
+roms/connect4.gba, is original homebrew written for this project. Everything
+else you play, you supply yourself.
