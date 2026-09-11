@@ -25,5 +25,5 @@ mGBA's own third-party dependencies (SDL2, zlib, libpng, and others) carry
 their own licenses; see the mGBA repository for the full list.
 
 No commercial game ROMs are distributed with this project. The one ROM here,
-roms/connect4.gba, is original homebrew written for this project. Everything
+web/roms/connect4.gba, is original homebrew written for this project. Everything
 else you play, you supply yourself.

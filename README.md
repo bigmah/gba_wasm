@@ -21,8 +21,13 @@ Open <http://127.0.0.1:8080/>, then add a ROM — drag a `.gba` file onto the pa
 or click **Choose a ROM file**. It starts straight away and stays in your library
 for next time.
 
-Nothing to hand? `roms/connect4.gba` is a homebrew Connect 4 built for the GBA,
-included so there is something to run out of the box. Drag it onto the page.
+Nothing to hand? A homebrew Connect 4 ships in `web/roms/` and seeds itself
+into the library the first time you open the page, so there is something to
+play straight away. Remove it and it stays removed; the overlay offers it back.
+
+Adding `?go` to the URL starts the bundled game immediately instead of waiting
+for a click — that exists for pages that embed this one in a frame after
+already asking, and is not needed otherwise.
 
 ```bash
 cargo run --release -- --port 3000      # different port
@@ -103,8 +108,9 @@ mgba.listRoms()                   // your ROM library
   `mgba.*` is the published threaded build, `mgba-single-thread.*` is the same
   core rebuilt with threading off for the single-file bundle.
 - `tools/` — scripts to rebuild the single-threaded core and the bundle.
-- `roms/` — the one bundled demo ROM. Everything else in here is gitignored,
-  so your own ROMs can sit alongside it without ending up in a commit.
+- `web/roms/` — served beside the app. `connect4.gba` is seeded into a fresh
+  library on a first visit; everything else you drop in here is gitignored, so
+  your own ROMs can sit alongside it without ending up in a commit.
 
 Four details worth knowing if you modify this:
 
@@ -140,7 +146,13 @@ python3 tools/bundle.py
 That writes `dist/gba-wasm.html` (~1 MB): the stylesheet, favicon, front end,
 mGBA glue, and the wasm core itself — gzipped, base64'd, and inflated at boot
 through Emscripten's `instantiateWasm` hook — all in one file. Open it directly,
-email it, put it on any static host. Nothing is fetched at runtime.
+email it, put it on any static host. The emulator itself fetches nothing.
+
+It also drops `dist/roms/connect4.gba` beside the page, which is the one thing
+the page does fetch: copy the directory, not just the `.html`, and a static
+host gets the demo game too. Over `file://` that fetch is blocked (an opaque
+origin cannot read the file next to it), so the library starts empty there and
+you drag a ROM in.
 
 It uses the single-threaded core because the threaded one needs
 `SharedArrayBuffer`, and a lone HTML file cannot serve itself the COOP/COEP

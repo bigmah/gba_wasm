@@ -17,11 +17,13 @@ import base64
 import gzip
 import pathlib
 import re
+import shutil
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
 OUT = ROOT / "dist" / "gba-wasm.html"
+DEFAULT_ROM = "connect4.gba"   # seeded by the page; must sit beside it
 
 
 def read(path):
@@ -104,9 +106,16 @@ async function bundledInstantiateWasm(imports, receiveInstance) {
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(html, encoding="utf-8")
 
+    # The page seeds itself from roms/ beside it, so the output directory is
+    # what gets served or vendored, not the .html on its own.
+    roms = OUT.parent / "roms"
+    roms.mkdir(exist_ok=True)
+    shutil.copy2(WEB / "roms" / DEFAULT_ROM, roms / DEFAULT_ROM)
+
     size = OUT.stat().st_size
     print("wrote %s (%.2f MB)" % (OUT.relative_to(ROOT), size / 1048576))
     print("  wasm %.2f MB -> %.2f MB gzipped+base64" % (len(wasm) / 1048576, len(packed) / 1048576))
+    print("  plus %s" % (roms / DEFAULT_ROM).relative_to(ROOT))
 
 
 if __name__ == "__main__":

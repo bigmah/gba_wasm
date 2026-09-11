@@ -108,7 +108,7 @@ const defaultBindings = () => {
 };
 
 let bindings = loadJSON(BINDINGS_KEY, defaultBindings());
-let settings = loadJSON(SETTINGS_KEY, { volume: 70, scale: 3, slot: 1, rom: "" });
+let settings = loadJSON(SETTINGS_KEY, { volume: 70, scale: 3, slot: 1, rom: "", seededRom: "" });
 
 // Drop bindings for actions that no longer exist, add ones that are new.
 for (const a of ALL_ACTIONS) {
@@ -719,10 +719,23 @@ async function removeSelectedRom() {
 /** Whatever should be on screen when no game is running. */
 function showIdleOverlay(roms = libraryRoms()) {
   if (!roms.length) {
+    // An empty library means the bundled ROM was removed, since it seeds itself
+    // on a first visit. Offer it back: it is the one ROM nobody can re-add from
+    // their own machine.
+    const removedDefault = settings.seededRom === DEFAULT_ROM.name;
     showOverlay(
-      "No ROMs in this browser yet. Add a .gba file to start playing — it stays " +
-      "on your machine and is never uploaded anywhere.",
-      { spinner: false, hint: true, action: { label: "Choose a ROM file", onClick: () => $("file-input").click() } },
+      removedDefault
+        ? "No ROMs in this browser. Add a .gba file, or put " + DEFAULT_ROM.name +
+          " back — either way it stays on your machine and is never uploaded anywhere."
+        : "No ROMs in this browser yet. Add a .gba file to start playing — it stays " +
+          "on your machine and is never uploaded anywhere.",
+      {
+        spinner: false,
+        hint: true,
+        action: removedDefault
+          ? { label: "Load " + DEFAULT_ROM.name, onClick: restoreDefaultRom }
+          : { label: "Choose a ROM file", onClick: () => $("file-input").click() },
+      },
     );
   } else {
     showOverlay("Ready — " + (el.romSelect.value || roms[0]), {
@@ -731,6 +744,66 @@ function showIdleOverlay(roms = libraryRoms()) {
       action: { label: "Click to start", onClick: startSelectedRom },
     });
   }
+}
+
+// ----------------------------------------------------------- default rom
+
+/**
+ * A ROM served beside this page, seeded into the library on a first visit so
+ * the emulator is never empty.
+ *
+ * The path is relative and identical in both builds: the server serves
+ * `web/roms/`, and tools/bundle.py's single file is meant to be dropped next
+ * to a `roms/` directory holding the same ROM. Opened straight off disk with
+ * nothing beside it, the fetch fails and the library simply starts empty.
+ */
+const DEFAULT_ROM = { name: "connect4.gba", url: "roms/connect4.gba" };
+
+/**
+ * Copies the bundled ROM into the browser's library.
+ *
+ * Once storage is persistent the seed is recorded, so removing the ROM makes
+ * it stay gone; without persistence nothing survives a reload anyway, so it
+ * is re-seeded every boot. What is recorded is the name that was seeded, so a
+ * browser holding an earlier bundled ROM is still handed this one. Returns
+ * whether the ROM ended up in the library.
+ */
+async function seedDefaultRom() {
+  if (!Module) return false;
+  if (libraryRoms().includes(DEFAULT_ROM.name)) return true;
+  if (Module.persistent && settings.seededRom === DEFAULT_ROM.name) return false;
+
+  showOverlay("Loading " + DEFAULT_ROM.name + "…");
+  try {
+    const response = await fetch(DEFAULT_ROM.url);
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    Module.FS.writeFile(Module.filePaths().gamePath + "/" + DEFAULT_ROM.name, bytes);
+    await Module.FSSync().catch(() => {});
+
+    settings.seededRom = DEFAULT_ROM.name;
+    persistSettings();
+    return true;
+  } catch (e) {
+    // Offline, or opened with nothing beside it — fall back to an empty library.
+    console.warn("could not load the bundled ROM:", e);
+    return false;
+  }
+}
+
+/** Puts the bundled ROM back after it was removed, and starts it. */
+async function restoreDefaultRom() {
+  unlockAudio();
+  settings.seededRom = "";
+  persistSettings();
+
+  if (!(await seedDefaultRom())) {
+    showOverlay("Could not load " + DEFAULT_ROM.name + ".", { spinner: false, error: true });
+    setStatus("load failed", "error");
+    return;
+  }
+  refreshRomLibrary(DEFAULT_ROM.name);
+  await startSelectedRom();
 }
 
 // ---------------------------------------------------------------- audio
@@ -918,10 +991,19 @@ async function boot() {
 
   window.addEventListener("beforeunload", () => { try { Module.FSSync(); } catch { /* ignore */ } });
 
-  // The library lives in this browser, so it may already have entries.
-  refreshRomLibrary(settings.rom);
+  // The library lives in this browser, so it may already have entries; the
+  // bundled ROM joins them the first time anyone visits.
+  const haveDefault = await seedDefaultRom();
+
+  // ?go — for an embedder that has already asked. A page linked from a card
+  // naming the bundled game should come up with that game running rather than
+  // ask for the same yes twice. Landing here directly is its own decision, and
+  // gets the usual click-to-start.
+  const go = haveDefault && new URLSearchParams(location.search).has("go");
+  refreshRomLibrary(go ? DEFAULT_ROM.name : settings.rom || (haveDefault ? DEFAULT_ROM.name : ""));
   wireDragAndDrop();
-  showIdleOverlay();
+  if (go) await startSelectedRom();
+  else showIdleOverlay();
   setStatus("ready");
 }
 

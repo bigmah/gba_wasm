@@ -9,5 +9,6 @@ __pycache__/
 *.sav
 *.ss[1-9]
 
-# …except the bundled demo ROM.
-!/roms/connect4.gba
+# …except the bundled demo ROM and the copy bundle.py puts beside dist/.
+!/web/roms/connect4.gba
+!/dist/roms/connect4.gba
